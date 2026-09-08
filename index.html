@@ -113,6 +113,30 @@ tr:last-child td{border-bottom:none}
 .cam video,.cam img{width:100%;height:100%;object-fit:cover}
 .cam .ph{color:#8b8078;font-size:12.5px;padding:16px;text-align:center}
 .photo{width:100%;border-radius:13px;max-height:220px;object-fit:cover}
+.mtx{overflow:auto;-webkit-overflow-scrolling:touch;max-height:68vh;
+  border:1px solid var(--line);border-radius:14px;background:#fff}
+.mtx table{border-collapse:separate;border-spacing:0;font-size:12.5px;width:auto;min-width:100%}
+.mtx th,.mtx td{border-bottom:1px solid #F7EEE4;padding:6px 8px;white-space:nowrap;background:#fff}
+.mtx thead th{position:sticky;top:0;z-index:3;background:#FFF3E9;color:#7a6a60;
+  font-size:11px;font-weight:700;text-transform:none;letter-spacing:0;text-align:center;
+  border-bottom:1.5px solid var(--line)}
+.mtx thead th.cnr{left:0;z-index:5;text-align:left}
+.mtx tbody td.dt{position:sticky;left:0;z-index:2;font-weight:600;font-size:12px;
+  border-right:1.5px solid var(--line)}
+.mtx tbody tr.alt td{background:#FFFCF7}
+.mtx tbody tr.today td{background:#FFF4EC}
+.cellv{cursor:pointer;text-align:center;min-width:76px;line-height:1.3}
+.cellv .ci{font-weight:600;color:var(--ok)}
+.cellv .co{font-weight:600;color:var(--orange)}
+.cellv .pend{color:var(--amber);font-weight:600;font-size:11px}
+.cellv .no{color:#DCD0C6}
+.cellv .kode{display:inline-block;font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:7px}
+.k-sakit{background:#FDECEA;color:#C0392B}
+.k-al{background:#E7F6EF;color:#15804F}
+.k-upl{background:#F2EDE8;color:#6b5f57}
+.k-lain{background:#EAF1F8;color:#2E6BB8}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:11px;color:var(--muted)}
+.legend b{font-weight:700;color:var(--ink)}
 .rq{border:1px solid var(--line);border-radius:15px;padding:12px 13px;margin-bottom:9px;background:#fff}
 .rq .top{display:flex;justify-content:space-between;align-items:flex-start;gap:9px;margin-bottom:5px}
 .rq .top b{font-size:14px}
@@ -745,30 +769,69 @@ function renderCekAbsen(){
   loadCA();
 }
 
+/* kode singkat izin di matriks */
+var IZKODE = {
+  'Izin Sakit':   ['SAKIT','k-sakit'],
+  'Cuti Tahunan': ['AL','k-al'],
+  'Unpaid Leave': ['UPL','k-upl'],
+  'Izin Lainnya': ['IZIN LAIN','k-lain']
+};
+function izKode(jenis){
+  return IZKODE[jenis] || [String(jenis||'IZIN').toUpperCase(), 'k-lain'];
+}
+function dateRange(from,to){
+  var out=[], d=new Date(from+'T12:00:00'), end=new Date(to+'T12:00:00');
+  while(d<=end && out.length<400){ out.push(iso(d)); d.setDate(d.getDate()+1); }
+  return out;
+}
+
 async function loadCA(){
   var box=$('caBox'); box.innerHTML=loading();
   try{
     var r=await api('getAbsensi',{ from:$('caFrom').value, to:$('caTo').value });
     if(!r.ok){ box.innerHTML='<div class="empty">'+esc(r.msg)+'</div>'; return; }
     CA=r;
+
+    /* --- daftar staff: gabungkan USERS aktif + siapa pun yang punya data --- */
+    var people={};
+    (r.staff||[]).forEach(function(x){ people[x.username.toLowerCase()]={ username:x.username, name:x.name }; });
+    (r.data||[]).forEach(function(x){ var k=x.username.toLowerCase();
+      if(!people[k]) people[k]={ username:x.username, name:x.name||x.username }; });
+    (r.izin||[]).forEach(function(x){ var k=x.username.toLowerCase();
+      if(!people[k]) people[k]={ username:x.username, name:x.name||x.username }; });
+    var cols=Object.keys(people).sort(function(a,b){ return people[a].name.localeCompare(people[b].name); });
+
+    /* --- indeks absensi & izin per tanggal+orang --- */
+    CA.absIdx={}; CA.izIdx={};
+    (r.data||[]).forEach(function(x,i){ CA.absIdx[x.date+'|'+x.username.toLowerCase()]=i; });
+    (r.izin||[]).forEach(function(z){
+      dateRange(z.from, z.to||z.from).forEach(function(d){ CA.izIdx[d+'|'+z.username.toLowerCase()]=z; });
+    });
+    CA.people=people;
+
+    /* --- rekap per orang --- */
     var per={};
-    (r.staff||[]).forEach(function(s){ per[s.username.toLowerCase()]={ name:s.name, hari:0, jam:0, ot:0, sakit:0, cuti:0, unpaid:0, lain:0 }; });
     function slot(k,nm){ if(!per[k]) per[k]={ name:nm||k, hari:0, jam:0, ot:0, sakit:0, cuti:0, unpaid:0, lain:0 }; return per[k]; }
-    r.data.forEach(function(x){ var p=slot(x.username.toLowerCase(), x.name); if(x.masuk) p.hari++; p.jam+=Number(x.durasi)||0; });
+    cols.forEach(function(k){ slot(k, people[k].name); });
+    (r.data||[]).forEach(function(x){
+      // hari yang ditimpa izin tidak dihitung sebagai hari kerja (biar tidak dobel)
+      if(CA.izIdx[x.date+'|'+x.username.toLowerCase()]) return;
+      var p=slot(x.username.toLowerCase(), x.name);
+      if(x.masuk) p.hari++;
+      p.jam+=Number(x.durasi)||0;
+    });
     (r.lembur||[]).forEach(function(x){ slot(x.username.toLowerCase(), x.name).ot += x.hours; });
     (r.izin||[]).forEach(function(z){
       var p=slot(z.username.toLowerCase(), z.name);
-      var a=new Date(z.from+'T12:00:00'), b=new Date(z.to+'T12:00:00');
-      var n=Math.max(1, Math.round((b-a)/86400000)+1);
+      var n=dateRange(z.from, z.to||z.from).filter(function(d){ return d>=r.from && d<=r.to; }).length;
       if(z.jenis==='Izin Sakit') p.sakit+=n; else if(z.jenis==='Cuti Tahunan') p.cuti+=n;
       else if(z.jenis==='Unpaid Leave') p.unpaid+=n; else p.lain+=n;
     });
-    var keys=Object.keys(per).sort(function(a,b){ return per[a].name.localeCompare(per[b].name); });
 
     var html='<div class="card tight"><div class="sec" style="margin-top:0">Rekap '+fmtTgl(r.from)+' – '+fmtTgl(r.to)+'</div>'+
       '<div class="tw"><table><thead><tr><th>Nama</th><th class="num">Hari</th><th class="num">Jam</th>'+
-      '<th class="num">Lembur</th><th class="num">Sakit</th><th class="num">Cuti</th><th class="num">Unpaid</th></tr></thead><tbody>'+
-      (keys.length? keys.map(function(k){ var p=per[k];
+      '<th class="num">Lembur</th><th class="num">Sakit</th><th class="num">AL</th><th class="num">UPL</th></tr></thead><tbody>'+
+      (cols.length? cols.map(function(k){ var p=per[k];
         return '<tr><td style="font-weight:600">'+esc(p.name)+'</td>'+
           '<td class="num qty">'+p.hari+'</td><td class="num">'+nf(p.jam)+'</td>'+
           '<td class="num">'+(p.ot?('<b style="color:var(--blue)">'+nf(p.ot)+'</b>'):'0')+'</td>'+
@@ -776,50 +839,90 @@ async function loadCA(){
       }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--muted)">Belum ada data</td></tr>')+
       '</tbody></table></div></div>';
 
-    // izin approved
+    /* --- matriks: tanggal ke bawah, staff ke samping --- */
+    html+='<div class="card tight"><div class="sec" style="margin-top:0">Absensi Harian</div>';
+    if(!cols.length){
+      html+='<div class="empty"><div class="ei">👥</div><div>Belum ada staff aktif di sheet USERS</div></div>';
+    } else {
+      var dates=dateRange(r.from, r.to).reverse();     // terbaru di atas
+      html+='<div class="mtx"><table><thead><tr><th class="cnr">Tgl</th>'+
+        cols.map(function(k){ return '<th>'+esc(people[k].name)+'</th>'; }).join('')+'</tr></thead><tbody>'+
+        dates.map(function(d,ri){
+          var cls=(d===S.today?'today':(ri%2?'alt':''));
+          return '<tr class="'+cls+'"><td class="dt">'+fmtShort(d)+'</td>'+
+            cols.map(function(k){ return cellHtml(d,k); }).join('')+'</tr>';
+        }).join('')+'</tbody></table></div>'+
+        '<div class="legend"><span><b>SAKIT</b> izin sakit</span><span><b>AL</b> cuti tahunan</span>'+
+        '<span><b>UPL</b> unpaid leave</span><span><b>IZIN LAIN</b> izin lainnya</span></div>'+
+        '<div style="font-size:11.5px;color:var(--muted);margin-top:8px">Ketuk sel untuk lihat foto'+
+        (S.m.canApprove?' & koreksi jam':'')+'. Kode izin hanya menimpa tampilan — jam aslinya tetap tersimpan di sheet.</div>';
+    }
+    html+='</div>';
+
+    /* --- izin approved (keterangan + lampiran) --- */
     if((r.izin||[]).length){
       html+='<div class="card tight"><div class="sec" style="margin-top:0">Izin disetujui</div>'+
-        (r.izin.map(function(z){
-          return '<div class="rq"><div class="top"><b>'+esc(z.name)+'</b><span class="badge b-blue">'+esc(z.jenis)+'</span></div>'+
+        r.izin.map(function(z){
+          var kd=izKode(z.jenis);
+          return '<div class="rq"><div class="top"><b>'+esc(z.name)+'</b><span class="kode '+kd[1]+'">'+esc(kd[0])+'</span></div>'+
             '<div class="meta">'+fmtTgl(z.from)+(z.to!==z.from?(' – '+fmtTgl(z.to)):'')+'<br>'+esc(z.keterangan)+'</div>'+
             (z.photo?('<div style="margin-top:8px">'+imgTag(z.photo)+'</div>'):'')+'</div>';
-        }).join(''))+'</div>';
+        }).join('')+'</div>';
     }
-
-    html+='<div class="card tight"><div class="sec" style="margin-top:0">Detail Harian</div>';
-    if(!r.data.length){ html+='<div class="empty"><div class="ei">📭</div><div>Tidak ada absensi di rentang ini</div></div>'; }
-    else{
-      html+='<div class="tw"><table><thead><tr><th>Tgl</th><th>Nama</th><th>Masuk</th><th>Pulang</th><th class="num">Jam</th></tr></thead><tbody>'+
-        r.data.map(function(x,i){
-          var mk=x.masuk?(x.fotoMasuk?('<a onclick="absDetail('+i+',\'in\')">'+x.masuk+'</a>'):x.masuk):'—';
-          var pl=x.pulang?(x.fotoPulang?('<a onclick="absDetail('+i+',\'out\')">'+x.pulang+'</a>'):x.pulang):'<span style="color:var(--muted)">belum</span>';
-          return '<tr><td style="white-space:nowrap">'+fmtShort(x.date)+'</td><td style="font-weight:600">'+esc(x.name||x.username)+'</td>'+
-            '<td>'+mk+'</td><td>'+pl+'</td><td class="num">'+(x.durasi?nf(x.durasi):'—')+'</td></tr>';
-        }).join('')+'</tbody></table></div>'+
-        '<div style="font-size:11.5px;color:var(--muted);margin-top:9px">Ketuk jam untuk lihat foto'+(S.m.canApprove?' & koreksi manual':'')+'.</div>';
-    }
-    box.innerHTML=html+'</div>';
+    box.innerHTML=html;
   }catch(e){ box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
 }
 window.loadCA=loadCA;
 
-function absDetail(i,type){
+function cellHtml(date, ukey){
+  var key=date+'|'+ukey;
+  var iz=CA.izIdx[key];
+  var open='<td class="cellv" onclick="cellDetail(\''+date+'\',\''+ukey+'\')">';
+  if(iz){ var kd=izKode(iz.jenis); return open+'<span class="kode '+kd[1]+'">'+esc(kd[0])+'</span></td>'; }
+  var i=CA.absIdx[key];
+  if(i===undefined) return open+'<span class="no">—</span></td>';
   var x=CA.data[i];
-  var url=type==='in'?x.fotoMasuk:x.fotoPulang, lok=type==='in'?x.lokMasuk:x.lokPulang;
-  var h='<div style="font-size:12.5px;color:var(--muted);margin-bottom:9px">'+esc(x.name||x.username)+' · '+fmtTgl(x.date)+
-        ' · '+(type==='in'?'Clock In':'Clock Out')+' '+(type==='in'?x.masuk:x.pulang)+'</div>'+
-    (url?('<img class="photo" style="max-height:none" src="'+esc(url)+'" onerror="photoFallback(this,\''+esc(url)+'\')">'):'<div class="empty">Tidak ada foto</div>')+
-    (lok?('<div style="margin-top:9px;font-size:12px"><a href="https://maps.google.com/?q='+esc(lok)+'" target="_blank" rel="noopener">📍 Lihat lokasi ('+esc(lok)+')</a></div>'):'');
+  return open+'<div class="ci">'+(x.masuk||'—')+'</div>'+
+    (x.pulang?('<div class="co">'+x.pulang+'</div>'):'<div class="pend">belum</div>')+'</td>';
+}
+
+function cellDetail(date, ukey){
+  var p=CA.people[ukey]||{ username:ukey, name:ukey };
+  var iz=CA.izIdx[date+'|'+ukey];
+  var i=CA.absIdx[date+'|'+ukey];
+  var x=(i===undefined)?null:CA.data[i];
+
+  var h='<div style="font-size:12.5px;color:var(--muted);margin-bottom:11px">'+esc(p.name)+' · '+fmtTgl(date)+'</div>';
+  if(iz){
+    var kd=izKode(iz.jenis);
+    h+='<div class="rq"><div class="top"><b>'+esc(iz.jenis)+'</b><span class="kode '+kd[1]+'">'+esc(kd[0])+'</span></div>'+
+      '<div class="meta">'+fmtTgl(iz.from)+(iz.to!==iz.from?(' – '+fmtTgl(iz.to)):'')+'<br>'+esc(iz.keterangan)+'</div>'+
+      (iz.photo?('<div style="margin-top:8px">'+imgTag(iz.photo)+'</div>'):'')+'</div>';
+  }
+  if(x){
+    h+='<div class="stat" style="margin-bottom:11px">'+
+      '<div class="s"><b style="color:var(--ok);font-size:16px">'+(x.masuk||'—')+'</b><span>Clock In</span></div>'+
+      '<div class="s"><b style="color:var(--orange);font-size:16px">'+(x.pulang||'—')+'</b><span>Clock Out</span></div>'+
+      '<div class="s"><b style="font-size:16px">'+(x.durasi?nf(x.durasi):'—')+'</b><span>Jam kerja</span></div></div>';
+    var fotos='';
+    if(x.fotoMasuk) fotos+='<div>'+imgTag(x.fotoMasuk)+'<div style="text-align:center;font-size:11px;color:var(--muted);margin-top:4px">Masuk '+esc(x.masuk||'')+'</div></div>';
+    if(x.fotoPulang) fotos+='<div>'+imgTag(x.fotoPulang)+'<div style="text-align:center;font-size:11px;color:var(--muted);margin-top:4px">Pulang '+esc(x.pulang||'')+'</div></div>';
+    if(fotos) h+='<div class="row">'+fotos+'</div>';
+    var lok=x.lokMasuk||x.lokPulang;
+    if(lok) h+='<div style="margin-top:9px;font-size:12px"><a href="https://maps.google.com/?q='+esc(lok)+'" target="_blank" rel="noopener">📍 Lihat lokasi ('+esc(lok)+')</a></div>';
+  } else if(!iz){
+    h+='<div class="empty" style="padding:18px"><div class="ei">📭</div><div>Tidak ada catatan absensi</div></div>';
+  }
   if(S.m.canApprove){
     h+='<div class="sec">Koreksi manual</div><div class="row">'+
-      '<div><label>Jam Masuk</label><input type="time" id="edIn" value="'+esc(x.masuk||'')+'"></div>'+
-      '<div><label>Jam Pulang</label><input type="time" id="edOut" value="'+esc(x.pulang||'')+'"></div></div>'+
-      '<button class="btn amber" style="margin-top:10px" onclick="saveEditAbs(\''+esc(x.date)+'\',\''+esc(x.username)+'\')">Simpan Koreksi</button>'+
+      '<div><label>Jam Masuk</label><input type="time" id="edIn" value="'+esc((x&&x.masuk)||'')+'"></div>'+
+      '<div><label>Jam Pulang</label><input type="time" id="edOut" value="'+esc((x&&x.pulang)||'')+'"></div></div>'+
+      '<button class="btn amber" style="margin-top:10px" onclick="saveEditAbs(\''+date+'\',\''+esc(p.username)+'\')">Simpan Koreksi</button>'+
       '<div class="msg" id="edMsg"></div>';
   }
   openModal('Detail Absensi', h);
 }
-window.absDetail=absDetail;
+window.cellDetail=cellDetail;
 
 async function saveEditAbs(date, username){
   try{
