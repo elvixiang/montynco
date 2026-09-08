@@ -118,12 +118,20 @@ tr:last-child td{border-bottom:none}
 .rq .top b{font-size:14px}
 .rq .meta{font-size:12px;color:var(--muted);line-height:1.5}
 .ilist{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
-.irow{display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid #F7EEE4}
+.irow{padding:10px 11px;border-bottom:1px solid #F7EEE4}
 .irow:last-child{border-bottom:none}
 .irow.filled{background:#FFFBF4}
-.irow .nm{flex:1;min-width:0;font-size:13.5px;font-weight:500;line-height:1.25}
-.irow .nm small{display:block;color:var(--muted);font-size:11px;font-weight:500}
-.irow input{width:84px;flex:none;padding:8px 9px;text-align:right;border-radius:10px;font-size:14px}
+.irow .nm{font-size:13.5px;font-weight:600;line-height:1.25;margin-bottom:7px}
+.irow .nm small{display:block;color:var(--muted);font-size:11px;font-weight:500;margin-top:1px}
+.irow .qf{display:flex;gap:8px}
+.irow .qf .f{flex:1;min-width:0;display:flex;align-items:center;gap:6px;
+  border:1.5px solid var(--line);border-radius:11px;padding:0 9px 0 0;background:#fff}
+.irow .qf .f:focus-within{border-color:var(--amber);box-shadow:0 0 0 3px rgba(248,173,53,.18)}
+.irow .qf .f input{flex:1;min-width:0;width:100%;border:none;background:none;padding:9px 4px 9px 9px;
+  text-align:right;font-size:14px;outline:none;box-shadow:none}
+.irow .qf .f span{flex:none;font-size:11.5px;font-weight:600;color:var(--muted);white-space:nowrap}
+.irow .qf .f .cap{position:absolute}
+.irow .tot{font-size:11.5px;color:var(--ok);font-weight:600;margin-top:6px;min-height:1px}
 .stickybar{position:sticky;bottom:86px;z-index:10;background:rgba(255,248,240,.96);backdrop-filter:blur(8px);
   border:1px solid var(--line);border-radius:15px;padding:10px 12px;margin-top:12px;display:flex;align-items:center;gap:10px}
 .stickybar .cnt{flex:1;font-size:12.5px;font-weight:600;color:var(--muted)}
@@ -251,6 +259,37 @@ function imgTag(url){
   if(!url) return '';
   return '<img class="photo" loading="lazy" style="cursor:zoom-in" src="'+esc(url)+'" '+
          'onclick="zoomPhoto(\''+esc(url)+'\')" onerror="photoFallback(this,\''+esc(url)+'\')">';
+}
+
+/* "(2500ml/btl)" — qty per pack, unit, nama full pax */
+function packLabel(x){
+  if(x.packSize>0 && x.packName) return '('+nf(x.packSize)+esc(x.unit||'')+'/'+esc(x.packName)+')';
+  return esc(x.unit||'—');
+}
+/* 12750 ml, pack 2500/btl -> "5 btl + 250 ml" */
+function packBreak(qty, packSize, packName, unit){
+  qty=Number(qty)||0;
+  if(!(packSize>0) || !packName) return nf(qty)+' '+esc(unit||'');
+  var p=Math.floor(qty/packSize), l=qty-p*packSize;
+  if(!p) return nf(l)+' '+esc(unit||'');
+  return nf(p)+' '+esc(packName)+(l?(' + '+nf(l)+' '+esc(unit||'')):'');
+}
+/* satu baris input: nama + kolom pack & ceceran */
+function itemRow(x, i, pfx){
+  var hasPack = x.packSize>0 && x.packName;
+  var pv = (x.pack===undefined||x.pack==='')?'':x.pack;
+  var lv = (x.loose===undefined||x.loose==='')?'':x.loose;
+  var filled = (pv!=='' || lv!=='');
+  return '<div class="irow'+(filled?' filled':'')+'" data-nm="'+esc(String(x.name).toLowerCase())+'" data-i="'+i+'">'+
+    '<div class="nm">'+esc(x.name)+'<small>'+packLabel(x)+'</small></div>'+
+    '<div class="qf">'+
+      (hasPack
+        ? '<div class="f"><input type="number" class="pk" inputmode="decimal" step="any" min="0" value="'+pv+'" '+
+          'oninput="rowChange(this,\''+pfx+'\')" placeholder="0"><span>'+esc(x.packName)+'</span></div>'
+        : '')+
+      '<div class="f"><input type="number" class="ls" inputmode="decimal" step="any" min="0" value="'+lv+'" '+
+        'oninput="rowChange(this,\''+pfx+'\')" placeholder="'+(hasPack?'ceceran':'0')+'"><span>'+esc(x.unit||'')+'</span></div>'+
+    '</div><div class="tot"></div></div>';
 }
 
 function stBadge(st){
@@ -1054,8 +1093,9 @@ async function loadSOView(first){
         '<span style="font-size:12.5px;font-weight:600;color:var(--muted)">Total nilai stok</span><b class="val">'+rp(r.totalValue)+'</b></div>'):'')+
       '<div class="tw"><table><thead><tr><th>Item</th><th class="num">Qty</th>'+(r.canSeeValue?'<th class="num">Nilai</th>':'')+'</tr></thead><tbody>'+
       r.rows.map(function(x){
-        return '<tr><td style="font-weight:600">'+esc(x.item)+'</td><td class="num qty">'+nf(x.qty)+
-          ' <small style="color:var(--muted);font-weight:500">'+esc(x.unit||'')+'</small></td>'+
+        return '<tr><td style="font-weight:600">'+esc(x.item)+'</td>'+
+          '<td class="num"><span class="qty">'+packBreak(x.qty,x.packSize,x.packName,x.unit)+'</span>'+
+          (x.packSize>0&&x.packName?('<br><small style="color:var(--muted);font-weight:500">'+nf(x.qty)+' '+esc(x.unit||'')+'</small>'):'')+'</td>'+
           (r.canSeeValue?('<td class="num val">'+rp(x.value)+'</td>'):'')+'</tr>';
       }).join('')+'</tbody></table></div>'+
       '<div style="font-size:11.5px;color:var(--muted);margin-top:9px">'+r.rows.length+' item ter-opname pada '+fmtTgl(r.date)+'</div></div>';
@@ -1065,7 +1105,7 @@ window.loadSOView=loadSOView;
 
 function renderSOInput(v){
   v.innerHTML='<div class="card tight"><div class="ctitle">📦 Input Stock Opname</div>'+
-    '<div class="note">Isi jumlah stok <b>fisik</b> hasil hitungan. Item yang dikosongkan tidak disimpan (bukan berarti nol). Kalau stok memang habis, tulis <b>0</b>.</div>'+
+    '<div class="note">Isi <b>pack</b> (kemasan utuh) dan <b>ceceran</b> (sisa satuan). Contoh Lime Syrup 2500ml/btl: 5 btl + 250 ml sisa &rarr; pack 5, ceceran 250. Item yang dikosongkan tidak disimpan — kalau stok memang habis, tulis <b>0</b>.</div>'+
     '<div class="fg"><label>Tanggal</label><input type="date" id="soiDate" value="'+S.today+'" max="'+S.today+'" onchange="loadSODraft()"></div>'+
     '<input type="text" id="soiSearch" placeholder="🔍 Cari item…" oninput="filterList(\'soi\')"></div><div id="soiBox">'+loading()+'</div>';
   loadSODraft();
@@ -1078,24 +1118,40 @@ async function loadSODraft(){
     SOIN.rows=r.rows;
     if(!r.rows.length){ box.innerHTML='<div class="card"><div class="empty"><div class="ei">📋</div><div>Sheet <b>PRICE</b> masih kosong.<br>Isi daftar barangnya dulu di spreadsheet.</div></div></div>'; return; }
     box.innerHTML='<div class="ilist" id="soiList">'+
-      r.rows.map(function(x,i){
-        return '<div class="irow'+(x.qty!==''?' filled':'')+'" data-nm="'+esc(String(x.name).toLowerCase())+'" data-i="'+i+'">'+
-          '<div class="nm">'+esc(x.name)+'<small>'+esc(x.unit||'—')+'</small></div>'+
-          '<input type="number" inputmode="decimal" step="any" min="0" value="'+(x.qty===''?'':x.qty)+'" oninput="markFilled(this,\'soi\')" placeholder="—"></div>';
-      }).join('')+'</div>'+
+      r.rows.map(function(x,i){ return itemRow(x,i,'soi'); }).join('')+'</div>'+
       '<div class="stickybar"><span class="cnt" id="soiCnt">—</span><button class="btn sm" id="soiSave" onclick="saveSO()">Simpan SO</button></div>'+
       '<div class="msg" id="soiMsg"></div>';
-    updCount('soi');
+    refreshTotals('soi'); updCount('soi');
   }catch(e){ box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
 }
 window.loadSODraft=loadSODraft;
 
-function markFilled(inp,pfx){
-  var v=inp.value;
-  inp.closest('.irow').classList.toggle('filled', pfx==='inb' ? (v!=='' && Number(v)>0) : v!=='');
+function rowVals(el){
+  var pk=el.querySelector('.pk'), ls=el.querySelector('.ls');
+  return { pack: pk?pk.value:'', loose: ls?ls.value:'' };
+}
+function rowTotal(el, rows){
+  var v=rowVals(el), x=rows[Number(el.dataset.i)];
+  if(v.pack==='' && v.loose==='') return null;
+  return (Number(v.pack)||0)*(x.packSize||0) + (Number(v.loose)||0);
+}
+function rowChange(inp,pfx){
+  var el=inp.closest('.irow');
+  var rows = pfx==='soi'?SOIN.rows:INB.rows;
+  var t=rowTotal(el, rows), x=rows[Number(el.dataset.i)];
+  el.classList.toggle('filled', pfx==='inb' ? (t!==null && t>0) : t!==null);
+  el.querySelector('.tot').textContent = (t===null||!(x.packSize>0&&x.packName)) ? '' : ('= '+nf(t)+' '+(x.unit||''));
   updCount(pfx);
 }
-window.markFilled=markFilled;
+window.rowChange=rowChange;
+function refreshTotals(pfx){
+  var list=$(pfx+'List'); if(!list) return;
+  var rows = pfx==='soi'?SOIN.rows:INB.rows;
+  Array.prototype.forEach.call(list.children,function(el){
+    var t=rowTotal(el, rows), x=rows[Number(el.dataset.i)];
+    el.querySelector('.tot').textContent = (t===null||!(x.packSize>0&&x.packName)) ? '' : ('= '+nf(t)+' '+(x.unit||''));
+  });
+}
 
 function filterList(pfx){
   var q=$(pfx+'Search').value.trim().toLowerCase(), list=$(pfx+'List');
@@ -1110,10 +1166,13 @@ function collect(pfx, rows){
   var list=$(pfx+'List'), out=[];
   if(!list) return out;
   Array.prototype.forEach.call(list.children,function(el){
-    var val=el.querySelector('input').value;
-    if(val==='') return;
-    var i=Number(el.dataset.i);
-    out.push({ name:rows[i].name, unit:rows[i].unit, qty:Number(val) });
+    var v=rowVals(el);
+    if(v.pack==='' && v.loose==='') return;
+    var x=rows[Number(el.dataset.i)];
+    out.push({ name:x.name, unit:x.unit,
+               pack: v.pack===''?0:Number(v.pack),
+               loose: v.loose===''?0:Number(v.loose),
+               qty: (Number(v.pack)||0)*(x.packSize||0) + (Number(v.loose)||0) });
   });
   return out;
 }
@@ -1164,8 +1223,9 @@ async function loadInView(first){
         '<span style="font-size:12.5px;font-weight:600;color:var(--muted)">Total nilai barang masuk</span><b class="val">'+rp(r.totalValue)+'</b></div>'):'')+
       '<div class="tw"><table><thead><tr><th>Item</th><th class="num">Qty</th>'+(r.canSeeValue?'<th class="num">Nilai</th>':'')+'<th></th></tr></thead><tbody>'+
       r.rows.map(function(x,i){
-        return '<tr><td style="font-weight:600">'+esc(x.item)+'</td><td class="num qty">'+nf(x.qty)+
-          ' <small style="color:var(--muted);font-weight:500">'+esc(x.unit||'')+'</small></td>'+
+        return '<tr><td style="font-weight:600">'+esc(x.item)+'</td>'+
+          '<td class="num"><span class="qty">'+packBreak(x.qty,x.packSize,x.packName,x.unit)+'</span>'+
+          (x.packSize>0&&x.packName?('<br><small style="color:var(--muted);font-weight:500">'+nf(x.qty)+' '+esc(x.unit||'')+'</small>'):'')+'</td>'+
           (r.canSeeValue?('<td class="num val">'+rp(x.value)+'</td>'):'')+
           '<td class="num">'+(x.entries&&x.entries.length?('<a onclick="inbDetail('+i+')">'+x.entries.length+' ›</a>'):'—')+'</td></tr>';
       }).join('')+'</tbody></table></div></div>';
@@ -1176,9 +1236,10 @@ window.loadInView=loadInView;
 function inbDetail(i){
   var x=INVIEW.rows[i];
   openModal(esc(x.item),
-    '<div style="font-size:12.5px;color:var(--muted);margin-bottom:11px">'+fmtTgl(INVIEW.date)+' · total '+nf(x.qty)+' '+esc(x.unit||'')+'</div>'+
+    '<div style="font-size:12.5px;color:var(--muted);margin-bottom:11px">'+fmtTgl(INVIEW.date)+
+      ' · total '+packBreak(x.qty,x.packSize,x.packName,x.unit)+'</div>'+
     x.entries.map(function(e){
-      return '<div class="rq"><div class="top"><b>'+nf(e.qty)+' '+esc(x.unit||'')+'</b>'+
+      return '<div class="rq"><div class="top"><b>'+packBreak(e.qty,x.packSize,x.packName,x.unit)+'</b>'+
         '<span style="font-size:12px;color:var(--muted)">'+esc(e.time)+'</span></div>'+
         '<div class="meta">'+esc(e.source||'—')+(e.sj?(' · SJ '+esc(e.sj)):'')+
         (e.note?('<br>'+esc(e.note)):'')+'<br>oleh '+esc(e.by)+'</div></div>';
@@ -1190,7 +1251,7 @@ function renderInbInput(v){
   var items=S.m.items||[];
   INB.rows=items.slice();
   v.innerHTML='<div class="card tight"><div class="ctitle">🚚 Input Barang Masuk</div>'+
-    '<div class="note">Isi qty barang yang <b>benar-benar diterima</b>. Item yang dikosongkan dianggap tidak ada kiriman. Kalau ada 2 kiriman di hari yang sama, simpan dua kali — qty otomatis ditambahkan.</div>'+
+    '<div class="note">Isi <b>pack</b> dan/atau <b>ceceran</b> barang yang benar-benar diterima. Item yang dikosongkan dianggap tidak ada kiriman. Kalau ada 2 kiriman di hari yang sama, simpan dua kali — qty otomatis ditambahkan.</div>'+
     '<div class="fg"><label>Tanggal terima</label><input type="date" id="inbDate" value="'+S.today+'" max="'+S.today+'"></div>'+
     '<div class="row"><div class="fg"><label>Sumber</label><select id="inbSource">'+
       (S.m.sources||[]).map(function(s){ return '<option>'+esc(s)+'</option>'; }).join('')+'</select></div>'+
@@ -1198,11 +1259,7 @@ function renderInbInput(v){
     '<div class="fg"><label>Catatan</label><input type="text" id="inbNote" placeholder="opsional — mis. 1 dus penyok"></div>'+
     '<input type="text" id="inbSearch" placeholder="🔍 Cari item…" oninput="filterList(\'inb\')"></div>'+
     (items.length
-      ? ('<div class="ilist" id="inbList">'+items.map(function(x,i){
-          return '<div class="irow" data-nm="'+esc(String(x.name).toLowerCase())+'" data-i="'+i+'">'+
-            '<div class="nm">'+esc(x.name)+'<small>'+esc(x.unit||'—')+'</small></div>'+
-            '<input type="number" inputmode="decimal" step="any" min="0" oninput="markFilled(this,\'inb\')" placeholder="—"></div>';
-        }).join('')+'</div>'+
+      ? ('<div class="ilist" id="inbList">'+items.map(function(x,i){ return itemRow(x,i,'inb'); }).join('')+'</div>'+
         '<div class="stickybar"><span class="cnt" id="inbCnt">0 / '+items.length+' item terisi</span>'+
         '<button class="btn sm" id="inbSave" onclick="saveInbound()">Simpan</button></div><div class="msg" id="inbMsg"></div>')
       : '<div class="card"><div class="empty"><div class="ei">📋</div><div>Sheet <b>PRICE</b> masih kosong.<br>Isi daftar barangnya dulu di spreadsheet.</div></div></div>');
@@ -1218,7 +1275,11 @@ async function saveInbound(){
       suratJalan:$('inbSJ').value.trim(), note:$('inbNote').value.trim() });
     say('inbMsg',(r.ok?'✅ ':'')+r.msg, r.ok);
     if(r.ok){
-      Array.prototype.forEach.call($('inbList').children,function(el){ el.querySelector('input').value=''; el.classList.remove('filled'); });
+      Array.prototype.forEach.call($('inbList').children,function(el){
+        Array.prototype.forEach.call(el.querySelectorAll('input'),function(i){ i.value=''; });
+        el.classList.remove('filled');
+        el.querySelector('.tot').textContent='';
+      });
       $('inbSJ').value=''; $('inbNote').value=''; updCount('inb');
     }
   }catch(e){ say('inbMsg', e.message); }
